@@ -5,9 +5,13 @@
 полный русский перевод параметров интеграции.
 
 > [!IMPORTANT]
-> Текущая версия основана на UniFi Network из Home Assistant **2026.8.1**.
+> Текущая версия основана на UniFi Network из Home Assistant **2026.8.2**.
 > Каталог `custom_components/unifi` имеет тот же домен, что и штатная интеграция,
 > поэтому Home Assistant загружает эту локальную версию вместо встроенной.
+> При обновлении Home Assistant локальная интеграция сравнивает отпечаток
+> встроенной UniFi Network с совместимой базовой версией. Если код UniFi не
+> менялся, обновление считается совместимым автоматически. Предупреждение в
+> Repairs появляется только после фактического изменения встроенного компонента.
 
 ## Возможности
 
@@ -139,5 +143,5 @@ cp -R home-assistant-unifi-selective/unifi/. /config/custom_components/unifi/
 необходимо переносить в этот проект вручную.
 
 Исходный компонент взят из проекта
-[Home Assistant Core](https://github.com/home-assistant/core/tree/2026.8.1/homeassistant/components/unifi).
+[Home Assistant Core](https://github.com/home-assistant/core/tree/2026.8.2/homeassistant/components/unifi).
 При распространении необходимо соблюдать условия лицензии Home Assistant Core.

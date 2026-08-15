@@ -9,7 +9,10 @@ from homeassistant.const import Platform
 
 LOGGER = logging.getLogger(__package__)
 DOMAIN = "unifi"
-LOCAL_BASE_HA_VERSION = "2026.8.1"
+LOCAL_BASE_HA_VERSION = "2026.8.2"
+LOCAL_BASE_UNIFI_FINGERPRINT = (
+    "ef5a62348567bd61692089618c7b8c794c3a0ce1dbdde425cd77ca936ac8fac8"
+)
 
 # The UniFi controller keeps a record of every client it has ever seen. On busy
 # or guest networks that is easily tens of thousands of drive-by devices.
