@@ -1,13 +1,9 @@
 """Integration to UniFi Network and its various features."""
 
-import hashlib
-from pathlib import Path
-
 from aiounifi.models.client import Client
 
-import homeassistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_HOMEASSISTANT_STOP, __version__ as HA_VERSION
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import (
@@ -21,8 +17,6 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     DOMAIN,
-    LOCAL_BASE_HA_VERSION,
-    LOCAL_BASE_UNIFI_FINGERPRINT,
     PLATFORMS,
     UNIFI_WIRELESS_CLIENTS,
 )
@@ -38,62 +32,14 @@ STORAGE_VERSION = 1
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-_FINGERPRINT_FILES = {
-    "icons.json",
-    "manifest.json",
-    "services.yaml",
-    "strings.json",
-}
-
-
-def _upstream_unifi_fingerprint() -> str | None:
-    """Return a fingerprint of the UniFi integration shipped with Core."""
-    if homeassistant.__file__ is None:
-        return None
-
-    integration_path = Path(homeassistant.__file__).parent / "components" / DOMAIN
-    if not integration_path.is_dir():
-        return None
-
-    files = sorted(
-        path
-        for path in integration_path.rglob("*")
-        if path.is_file()
-        and (path.suffix == ".py" or path.name in _FINGERPRINT_FILES)
-    )
-    digest = hashlib.sha256()
-    for path in files:
-        digest.update(path.relative_to(integration_path).as_posix().encode())
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Integration doesn't support configuration through configuration.yaml."""
     async_setup_services(hass)
 
-    upstream_is_compatible = HA_VERSION == LOCAL_BASE_HA_VERSION
-    if not upstream_is_compatible:
-        fingerprint = await hass.async_add_executor_job(_upstream_unifi_fingerprint)
-        upstream_is_compatible = fingerprint == LOCAL_BASE_UNIFI_FINGERPRINT
-
-    if not upstream_is_compatible:
-        ir.async_create_issue(
-            hass,
-            DOMAIN,
-            "local_override_outdated",
-            is_fixable=False,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key="local_override_outdated",
-            translation_placeholders={
-                "base_version": LOCAL_BASE_HA_VERSION,
-                "current_version": HA_VERSION,
-            },
-        )
-    else:
-        ir.async_delete_issue(hass, DOMAIN, "local_override_outdated")
+    # Remove the update warning created by earlier versions of this custom
+    # integration. Compatibility with newer Home Assistant releases is no
+    # longer reported through Repairs.
+    ir.async_delete_issue(hass, DOMAIN, "local_override_outdated")
 
     hass.data[UNIFI_WIRELESS_CLIENTS] = wireless_clients = UnifiWirelessClients(hass)
     await wireless_clients.async_load()

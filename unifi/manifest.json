@@ -10,5 +10,5 @@
   "loggers": ["aiounifi"],
   "quality_scale": "silver",
   "requirements": ["aiounifi==91"],
-  "version": "2026.8.2-local.2"
+  "version": "2026.8.2-local.3"
 }

@@ -214,12 +214,6 @@
       }
     }
   },
-  "issues": {
-    "local_override_outdated": {
-      "title": "Обновите локальную интеграцию UniFi Network",
-      "description": "Локальная интеграция UniFi Network основана на Home Assistant {base_version}, а сейчас установлен Home Assistant {current_version}. Необходимо синхронизировать `/config/custom_components/unifi` с обновлённой встроенной интеграцией."
-    }
-  },
   "services": {
     "reconnect_client": {
       "name": "Переподключить беспроводного клиента",

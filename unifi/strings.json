@@ -214,12 +214,6 @@
       }
     }
   },
-  "issues": {
-    "local_override_outdated": {
-      "title": "Update the local UniFi Network integration",
-      "description": "The local UniFi Network integration is based on Home Assistant {base_version}, but Home Assistant {current_version} is installed. Synchronize `/config/custom_components/unifi` with the updated built-in integration before relying on it."
-    }
-  },
   "services": {
     "reconnect_client": {
       "description": "Tries to get wireless client to reconnect to UniFi Network.",
