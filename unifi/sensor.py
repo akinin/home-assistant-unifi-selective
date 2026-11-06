@@ -33,13 +33,13 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
-    UnitOfTemperature,
 )
 from homeassistant.const import (
     PERCENTAGE,
     EntityCategory,
     UnitOfDataRate,
     UnitOfPower,
+    UnitOfTemperature,
     UnitOfTime,
 )
 from homeassistant.core import Event as core_Event, HomeAssistant, callback
