@@ -4,12 +4,13 @@
       "already_configured": "Этот сайт UniFi Network уже настроен",
       "cannot_connect": "Не удалось подключиться",
       "configuration_updated": "Конфигурация обновлена",
-      "reauth_successful": "Повторная аутентификация выполнена"
+      "unknown_site_id": "Ранее настроенный сайт UniFi Network больше не найден"
     },
     "error": {
       "faulty_credentials": "Неверное имя пользователя или пароль",
       "service_unavailable": "Не удалось подключиться к UniFi Network",
-      "unknown_client_mac": "Клиент с таким MAC-адресом не найден"
+      "unknown_client_mac": "Клиент с таким MAC-адресом не найден",
+      "mfa_required": "Для этой учётной записи требуется многофакторная аутентификация, которая не поддерживается. Используйте локальную учётную запись без многофакторной аутентификации."
     },
     "flow_title": "{name} ({host})",
     "step": {
@@ -38,6 +39,24 @@
           "verify_ssl": "Проверять сертификат SSL при подключении."
         },
         "title": "Настройка UniFi Network"
+      },
+      "reconfigure": {
+        "data": {
+          "host": "Адрес контроллера",
+          "password": "Пароль",
+          "port": "Порт",
+          "site": "Сайт",
+          "username": "Имя пользователя",
+          "verify_ssl": "Проверять сертификат SSL"
+        },
+        "data_description": {
+          "host": "Имя хоста или IP-адрес UniFi Network.",
+          "password": "Пароль локального пользователя UniFi Network.",
+          "port": "Порт приложения UniFi Network.",
+          "username": "Имя локального пользователя UniFi Network.",
+          "verify_ssl": "Проверять сертификат SSL при подключении."
+        },
+        "title": "Изменение подключения UniFi Network"
       }
     }
   },
@@ -128,6 +147,30 @@
       },
       "wlan_clients": {
         "name": "Клиенты"
+      },
+      "ups_battery_level": {
+        "name": "Заряд батареи"
+      },
+      "ups_battery_runtime": {
+        "name": "Время работы от батареи"
+      },
+      "ups_bypass_voltage": {
+        "name": "Напряжение байпаса"
+      },
+      "ups_input_voltage": {
+        "name": "Входное напряжение"
+      },
+      "ups_output_current": {
+        "name": "Выходной ток"
+      },
+      "ups_output_power": {
+        "name": "Выходная мощность"
+      },
+      "ups_output_power_factor": {
+        "name": "Коэффициент выходной мощности"
+      },
+      "ups_output_voltage": {
+        "name": "Выходное напряжение"
       }
     },
     "switch": {
@@ -157,6 +200,12 @@
     },
     "remove_clients_request_failed": {
       "message": "Не удалось удалить клиентов из UniFi Network"
+    },
+    "site_not_found": {
+      "message": "Настроенный сайт UniFi Network больше не существует"
+    },
+    "unload_failed": {
+      "message": "Не удалось выгрузить UniFi Network"
     }
   },
   "options": {

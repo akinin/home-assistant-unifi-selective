@@ -8,13 +8,17 @@ import asyncio
 from collections.abc import Callable, Coroutine, Sequence
 from datetime import datetime, timedelta
 from functools import partial
+import json
 from typing import TYPE_CHECKING, Any
 
+import aiounifi
 from aiounifi.interfaces.api_handlers import APIHandler, ItemEvent
+from aiounifi.models.api import ApiItem
 from aiounifi.models.client import Client
 
 from homeassistant.const import Platform
-from homeassistant.core import callback
+from homeassistant.core import async_noop, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -26,13 +30,14 @@ from ..const import (
     LOGGER,
     UNIFI_WIRELESS_CLIENTS,
 )
-from ..coordinator import UnifiDataUpdateCoordinator
+from ..coordinator import UPDATE_TIMEOUT, UnifiDataUpdateCoordinator
 from ..entity import (
     UnifiEntity,
     UnifiEntityDescription,
     async_client_device_info_fn,
     async_device_device_info_fn,
 )
+from .connection import ACCOUNT_ERRORS, LOGIN_ERRORS, NOT_READY_ERRORS, REQUEST_TIMEOUT
 
 if TYPE_CHECKING:
     from .hub import UnifiHub
@@ -46,30 +51,41 @@ class UnifiEntityLoader:
     def __init__(self, hub: UnifiHub) -> None:
         """Initialize the UniFi entity loader."""
         self.hub = hub
-        self.api_updaters = (
-            hub.api.clients.update,
-            hub.api.clients_all.update,
-            hub.api.devices.update,
-            hub.api.dpi_apps.update,
-            hub.api.dpi_groups.update,
-            hub.api.port_forwarding.update,
-            hub.api.sites.update,
-            hub.api.system_information.update,
-            hub.api.firewall_policies.update,
-            hub.api.wlans.update,
-        )
+        self._startup_only_api_updaters = (self._async_update_clients_all,)
         self.wireless_clients = hub.hass.data[UNIFI_WIRELESS_CLIENTS]
 
-        self._polling_coordinators: dict[int, UnifiDataUpdateCoordinator] = {
+        self._data_coordinators: dict[int, UnifiDataUpdateCoordinator[Any]] = {
+            id(hub.api.clients): UnifiDataUpdateCoordinator(hub, hub.api.clients),
+            id(hub.api.devices): UnifiDataUpdateCoordinator(hub, hub.api.devices),
+            id(hub.api.dpi_apps): UnifiDataUpdateCoordinator(hub, hub.api.dpi_apps),
+            id(hub.api.dpi_groups): UnifiDataUpdateCoordinator(hub, hub.api.dpi_groups),
+            id(hub.api.firewall_policies): UnifiDataUpdateCoordinator(
+                hub, hub.api.firewall_policies
+            ),
+            id(hub.api.object_oriented_network_configs): UnifiDataUpdateCoordinator(
+                hub,
+                hub.api.object_oriented_network_configs,
+                disable_polling_on_endpoint_not_found=True,
+            ),
+            id(hub.api.port_forwarding): UnifiDataUpdateCoordinator(
+                hub, hub.api.port_forwarding
+            ),
             id(hub.api.traffic_rules): UnifiDataUpdateCoordinator(
                 hub, hub.api.traffic_rules
             ),
             id(hub.api.traffic_routes): UnifiDataUpdateCoordinator(
                 hub, hub.api.traffic_routes
             ),
+            id(hub.api.wlans): UnifiDataUpdateCoordinator(hub, hub.api.wlans),
         }
-        for coordinator in self._polling_coordinators.values():
-            coordinator.async_add_listener(lambda: None)
+        self._data_coordinator_aliases: dict[int, int] = {
+            id(hub.api.outlets): id(hub.api.devices),
+            id(hub.api.ports): id(hub.api.devices),
+        }
+        for coordinator in self._data_coordinators.values():
+            self.hub.config.entry.async_on_unload(
+                coordinator.async_add_listener(async_noop)
+            )
 
         self.platforms: list[
             tuple[
@@ -83,14 +99,45 @@ class UnifiEntityLoader:
         self.known_objects: set[tuple[str, str]] = set()
         """Tuples of entity description key and object ID of loaded entities."""
 
+    async def async_load_sites(self) -> None:
+        """Load the sites of the console."""
+        try:
+            async with asyncio.timeout(REQUEST_TIMEOUT):
+                await self.hub.api.sites.update()
+        except ACCOUNT_ERRORS as err:
+            raise ConfigEntryAuthFailed from err
+        except (
+            TimeoutError,
+            json.JSONDecodeError,
+            aiounifi.AiounifiException,
+        ) as err:
+            raise ConfigEntryNotReady(
+                "UniFi site information is not available"
+            ) from err
+        if not self.hub.api.sites.values():
+            raise ConfigEntryNotReady("UniFi Network has not listed any site yet")
+
     async def initialize(self) -> None:
         """Initialize API data and extra client support."""
+        try:
+            async with asyncio.timeout(REQUEST_TIMEOUT):
+                await self.hub.api.system_information.update()
+        except ACCOUNT_ERRORS as err:
+            raise ConfigEntryAuthFailed from err
+        except (*NOT_READY_ERRORS, *LOGIN_ERRORS) as err:
+            # A booting console can reject a login for a moment, and the site
+            # list right before was readable
+            raise ConfigEntryNotReady("UniFi Network application is not ready") from err
+        except aiounifi.AiounifiException as err:
+            # The application answers, other data can still be loaded
+            LOGGER.debug("UniFi Network answered system information with: %r", err)
+
         await asyncio.gather(
-            self._refresh_api_data(),
+            self._refresh_data(self._startup_only_api_updaters),
             self._refresh_data(
                 [
                     coordinator.async_refresh
-                    for coordinator in self._polling_coordinators.values()
+                    for coordinator in self._data_coordinators.values()
                 ]
             ),
         )
@@ -106,14 +153,21 @@ class UnifiEntityLoader:
         if config.option_client_filter_mode == CLIENT_FILTER_ALL:
             return
 
+        # An incomplete inventory must not turn network equipment into
+        # apparently unselected clients during controller recovery.
+        if not self.get_data_update_coordinator(
+            self.hub.api.devices
+        ).last_update_success:
+            LOGGER.debug("Skipping UniFi client cleanup: device inventory unavailable")
+            return
+
         allowed = set(config.option_supported_clients)
         allowed.update(config.option_block_clients)
 
         entity_registry = er.async_get(self.hub.hass)
         device_registry = dr.async_get(self.hub.hass)
-        network_device_macs = {
-            device.mac for device in self.hub.api.devices.values()
-        }
+        network_device_macs = {device.mac for device in self.hub.api.devices.values()}
+        known_client_macs = set(self.hub.api.clients) | set(self.hub.api.clients_all)
         removed = 0
         entries_by_device: dict[str, list[er.RegistryEntry]] = {}
         for entry in entity_registry.entities.values():
@@ -123,7 +177,9 @@ class UnifiEntityLoader:
             ):
                 entries_by_device.setdefault(entry.device_id, []).append(entry)
 
-        for device in list(device_registry.devices.values()):
+        for device in dr.async_entries_for_config_entry(
+            device_registry, config.entry.entry_id
+        ):
             related_entries = entries_by_device.get(device.id, [])
             if not related_entries:
                 continue
@@ -134,6 +190,8 @@ class UnifiEntityLoader:
                 if connection_type == dr.CONNECTION_NETWORK_MAC
             }
             if not macs:
+                continue
+            if not macs & known_client_macs:
                 continue
             if macs & network_device_macs:
                 continue
@@ -172,14 +230,17 @@ class UnifiEntityLoader:
             ):
                 continue
 
-            for related_entry in er.async_entries_for_device(
-                entity_registry, device.id, include_disabled_entities=True
-            ):
-                if related_entry.config_entry_id == self.hub.config.entry.entry_id:
-                    entity_registry.async_remove(related_entry.entity_id)
-            device_registry.async_update_device(
-                device.id,
-                remove_config_entry_id=self.hub.config.entry.entry_id,
+            self._remove_device_entities(
+                entity_registry,
+                device_registry,
+                device,
+                [
+                    entry
+                    for entry in er.async_entries_for_device(
+                        entity_registry, device.id, include_disabled_entities=True
+                    )
+                    if entry.config_entry_id == self.hub.config.entry.entry_id
+                ],
             )
             removed += 1
 
@@ -188,6 +249,20 @@ class UnifiEntityLoader:
                 "Removed %s UniFi network equipment device(s) from the registry",
                 removed,
             )
+
+    async def _async_update_clients_all(self) -> None:
+        """Load all known clients to restore inactive ones."""
+        async with asyncio.timeout(UPDATE_TIMEOUT):
+            await self.hub.api.clients_all.update()
+
+    async def async_resync(self) -> None:
+        """Refetch all handler data after a connection is restored."""
+        await asyncio.gather(
+            *(
+                coordinator.async_resync()
+                for coordinator in self._data_coordinators.values()
+            )
+        )
 
     async def _refresh_data(
         self, updaters: Sequence[Callable[[], Coroutine[Any, Any, None]]]
@@ -199,10 +274,6 @@ class UnifiEntityLoader:
         for result in results:
             if result is not None:
                 LOGGER.warning("Exception on update %s", result)
-
-    async def _refresh_api_data(self) -> None:
-        """Refresh API data from network application."""
-        await self._refresh_data(self.api_updaters)
 
     @callback
     def _restore_inactive_clients(self) -> None:
@@ -285,9 +356,10 @@ class UnifiEntityLoader:
                 device,
                 related_entries,
             )
-            return
 
-        entity_registry.async_remove(entity_id)
+        # A legacy tracker can have no device_id even when the MAC device exists.
+        if entity_registry.async_get(entity_id) is not None:
+            entity_registry.async_remove(entity_id)
 
     def _remove_device_entities(
         self,
@@ -296,13 +368,16 @@ class UnifiEntityLoader:
         device: dr.DeviceEntry,
         entries: list[er.RegistryEntry],
     ) -> None:
-        """Remove this integration's entities and ownership of a device."""
+        """Remove only the device record owned by this config entry.
+
+        HA 2026.11 gives each integration its own device record. The scoped
+        lookups used by callers return that record, never a shared composite.
+        """
+        if device.config_entry_id != self.hub.config.entry.entry_id:
+            return
         for entry in entries:
             entity_registry.async_remove(entry.entity_id)
-        device_registry.async_update_device(
-            device.id,
-            remove_config_entry_id=self.hub.config.entry.entry_id,
-        )
+        device_registry.async_remove_device(device.id)
 
     @callback
     def register_platform(
@@ -331,10 +406,10 @@ class UnifiEntityLoader:
             self._load_entities(entity_class, descriptions, async_add_entities)
 
     @callback
-    def _should_add_entity(
+    def is_entity_allowed(
         self, description: UnifiEntityDescription, obj_id: str
     ) -> bool:
-        """Validate if entity is allowed and supported before creating it."""
+        """Apply client and equipment filters to every discovery path."""
         if description.device_info_fn is async_client_device_info_fn:
             config = self.hub.config
             if (
@@ -350,18 +425,27 @@ class UnifiEntityLoader:
         ):
             return False
 
+        return description.allowed_fn(self.hub, obj_id)
+
+    @callback
+    def _should_add_entity(
+        self, description: UnifiEntityDescription, obj_id: str
+    ) -> bool:
+        """Validate if entity is allowed and supported before creating it."""
         return bool(
             (description.key, obj_id) not in self.known_objects
-            and description.allowed_fn(self.hub, obj_id)
+            and self.is_entity_allowed(description, obj_id)
             and description.supported_fn(self.hub, obj_id)
         )
 
     @callback
-    def get_data_update_coordinator(
-        self, handler: APIHandler
-    ) -> UnifiDataUpdateCoordinator | None:
-        """Return the polling coordinator for a handler, if available."""
-        return self._polling_coordinators.get(id(handler))
+    def get_data_update_coordinator[HandlerT: APIHandler[ApiItem]](
+        self, handler: HandlerT
+    ) -> UnifiDataUpdateCoordinator[HandlerT]:
+        """Return the data coordinator for a handler."""
+        handler_id = id(handler)
+        resolved_handler_id = self._data_coordinator_aliases.get(handler_id, handler_id)
+        return self._data_coordinators[resolved_handler_id]
 
     @callback
     def _load_entities(

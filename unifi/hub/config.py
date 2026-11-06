@@ -31,6 +31,7 @@ from ..const import (
     CONF_SITE_ID,
     CONF_SSID_FILTER,
     CONF_TRACK_CLIENTS,
+    CONF_TRACK_DEVICES,
     CONF_TRACK_WIRED_CLIENTS,
     DEFAULT_ALLOW_BANDWIDTH_SENSORS,
     DEFAULT_ALLOW_UPTIME_SENSORS,
@@ -116,6 +117,11 @@ class UnifiConfig:
             else:
                 client_filter_mode = CLIENT_FILTER_NONE
 
+        create_network_entities = options.get(
+            CONF_CREATE_NETWORK_ENTITIES,
+            options.get(CONF_TRACK_DEVICES, DEFAULT_CREATE_NETWORK_ENTITIES),
+        )
+
         return cls(
             entry=config_entry,
             host=config[CONF_HOST],
@@ -126,16 +132,12 @@ class UnifiConfig:
             ssl_context=config.get(CONF_VERIFY_SSL, False),
             option_supported_clients=selected_clients,
             option_client_filter_mode=client_filter_mode,
-            option_create_network_entities=options.get(
-                CONF_CREATE_NETWORK_ENTITIES, DEFAULT_CREATE_NETWORK_ENTITIES
-            ),
+            option_create_network_entities=create_network_entities,
             option_track_clients=client_filter_mode == CLIENT_FILTER_ALL,
             option_track_wired_clients=options.get(
                 CONF_TRACK_WIRED_CLIENTS, DEFAULT_TRACK_WIRED_CLIENTS
             ),
-            option_track_devices=options.get(
-                CONF_CREATE_NETWORK_ENTITIES, DEFAULT_CREATE_NETWORK_ENTITIES
-            ),
+            option_track_devices=create_network_entities,
             option_ssid_filter=set(options.get(CONF_SSID_FILTER, [])),
             option_detection_time=timedelta(
                 seconds=options.get(CONF_DETECTION_TIME, DEFAULT_DETECTION_TIME)
