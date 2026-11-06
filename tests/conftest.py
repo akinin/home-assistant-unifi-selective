@@ -10,14 +10,14 @@ from typing import Any, Protocol
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiounifi.models.message import MessageKey
-from custom_components.unifi import STORAGE_KEY, STORAGE_VERSION
-from custom_components.unifi.const import CONF_SITE_ID, DOMAIN
-from custom_components.unifi.hub.connection import RETRY_DELAYS, RETRY_JITTER
 import orjson
 import pytest
 from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
 from pytest_homeassistant.test_util.aiohttp import AiohttpClientMocker
 
+from homeassistant.components.unifi import STORAGE_KEY, STORAGE_VERSION
+from homeassistant.components.unifi.const import CONF_SITE_ID, DOMAIN
+from homeassistant.components.unifi.hub.connection import RETRY_DELAYS, RETRY_JITTER
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -28,6 +28,17 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_teardown(item, nextitem):
+    """Restore native methods only after Home Assistant has unloaded entities."""
+    try:
+        yield
+    finally:
+        from custom_components.unifi.adapter_patches import uninstall_patches
+
+        uninstall_patches()
 
 
 def retry_window(attempt: int) -> tuple[float, float]:
@@ -86,7 +97,7 @@ def fixture_discovery():
     """No real network traffic allowed."""
     with (
         patch(
-            "custom_components.unifi.config_flow._async_discover_unifi",
+            "homeassistant.components.unifi.config_flow._async_discover_unifi",
             return_value=None,
         ) as mock,
         patch(

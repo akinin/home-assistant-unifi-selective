@@ -254,15 +254,6 @@
       }
     }
   },
-  "selector": {
-    "client_filter_mode": {
-      "options": {
-        "all": "All clients",
-        "selected": "Only selected clients",
-        "none": "Do not create client entities"
-      }
-    }
-  },
   "services": {
     "reconnect_client": {
       "description": "Tries to get wireless client to reconnect to UniFi Network.",
@@ -277,6 +268,21 @@
     "remove_clients": {
       "description": "Cleans up clients that have only been associated with the controller for a short period of time.",
       "name": "Remove clients from the UniFi Network"
+    }
+  },
+  "selector": {
+    "client_filter_mode": {
+      "options": {
+        "all": "All clients",
+        "selected": "Only selected clients",
+        "none": "Do not create client entities"
+      }
+    }
+  },
+  "issues": {
+    "adapter_incompatible": {
+      "title": "UniFi selective adapter is incompatible with this Core",
+      "description": "The built-in UniFi interface changed: {details}. Setup was stopped to preserve client filtering. Update the adapter before retrying."
     }
   }
 }

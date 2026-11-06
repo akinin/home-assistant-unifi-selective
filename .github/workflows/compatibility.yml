@@ -1,0 +1,51 @@
+name: Home Assistant compatibility
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      ha-version:
+        description: Exact HA release (empty checks baseline and latest stable)
+        required: false
+        default: ""
+  schedule:
+    - cron: "23 4 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  releases:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: matrix
+        env:
+          TASK_HA_VERSION: ${{ inputs.ha-version }}
+        run: |
+          matrix=$(python3 scripts/resolve_ha_matrix.py --ha-version "$TASK_HA_VERSION")
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+
+  compatibility:
+    needs: releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.releases.outputs.matrix) }}
+    name: HA ${{ matrix.ha }} / Python ${{ matrix.python }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install matching Core, test fixtures and native UniFi requirements
+        env:
+          TASK_HA_VERSION: ${{ matrix.ha }}
+          TASK_PYTHON: ${{ matrix.python }}
+        run: |
+          uv venv --python "$TASK_PYTHON" .venv
+          .venv/bin/python scripts/install_test_dependencies.py --ha-version "$TASK_HA_VERSION"
+      - name: Verify compatibility and selective behavior
+        run: .venv/bin/python -m pytest -q

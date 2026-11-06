@@ -1,0 +1,57 @@
+{
+  "entity": {
+    "switch": {
+      "block_client": {
+        "name": "Access blocking"
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "data": {
+          "block_client": "Clients with a network block switch",
+          "client_filter_mode": "Client entity mode",
+          "client_source": "Selected network clients",
+          "create_network_entities": "UniFi network equipment",
+          "track_devices": null,
+          "track_clients": null
+        },
+        "data_description": {
+          "block_client": "Create a switch that allows you to block and unblock network access for each selected client.",
+          "client_filter_mode": "Choose whether Home Assistant creates entities for all clients, only selected clients, or no clients.",
+          "client_source": "Clients used when the mode is set to selected. Existing entries for unselected clients are removed after saving.",
+          "create_network_entities": "Create all supported entities for UniFi gateways, switches, and access points. When disabled, their existing registry entries are removed automatically.",
+          "track_devices": null,
+          "track_clients": null
+        },
+        "sections": {
+          "more_options": {
+            "data": {
+              "client_source": null
+            },
+            "data_description": {
+              "ignore_local_mac": "Don't create entities for Wi-Fi clients whose MAC is locally administered (e.g. private/randomized Wi-Fi addresses). Wired clients are unaffected. Explicitly selected clients are still included.",
+              "client_source": null
+            }
+          }
+        }
+      }
+    }
+  },
+  "selector": {
+    "client_filter_mode": {
+      "options": {
+        "all": "All clients",
+        "selected": "Only selected clients",
+        "none": "Do not create client entities"
+      }
+    }
+  },
+  "issues": {
+    "adapter_incompatible": {
+      "title": "UniFi selective adapter is incompatible with this Core",
+      "description": "The built-in UniFi interface changed: {details}. Setup was stopped to preserve client filtering. Update the adapter before retrying."
+    }
+  }
+}

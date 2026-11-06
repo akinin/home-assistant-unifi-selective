@@ -1,0 +1,12 @@
+{
+  "entity": {
+    "switch": {
+      "block_client": {
+        "default": "mdi:ethernet-off",
+        "state": {
+          "off": "mdi:ethernet"
+        }
+      }
+    }
+  }
+}

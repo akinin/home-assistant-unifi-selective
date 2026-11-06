@@ -6,3 +6,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+# Regenerated from the currently installed Core, never vendor Python backend.
+/unifi/strings.json
+/unifi/icons.json
+/unifi/translations/*.json
+/dist/
+

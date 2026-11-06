@@ -8,12 +8,30 @@
     },
     "error": {
       "faulty_credentials": "Неверное имя пользователя или пароль",
+      "mfa_required": "Для этой учётной записи требуется многофакторная аутентификация, которая не поддерживается. Используйте локальную учётную запись без многофакторной аутентификации.",
       "service_unavailable": "Не удалось подключиться к UniFi Network",
-      "unknown_client_mac": "Клиент с таким MAC-адресом не найден",
-      "mfa_required": "Для этой учётной записи требуется многофакторная аутентификация, которая не поддерживается. Используйте локальную учётную запись без многофакторной аутентификации."
+      "unknown_client_mac": "Клиент с таким MAC-адресом не найден"
     },
     "flow_title": "{name} ({host})",
     "step": {
+      "reconfigure": {
+        "data": {
+          "host": "Адрес контроллера",
+          "password": "Пароль",
+          "port": "Порт",
+          "site": "Сайт",
+          "username": "Имя пользователя",
+          "verify_ssl": "Проверять сертификат SSL"
+        },
+        "data_description": {
+          "host": "Имя хоста или IP-адрес UniFi Network.",
+          "password": "Пароль локального пользователя UniFi Network.",
+          "port": "Порт приложения UniFi Network.",
+          "username": "Имя локального пользователя UniFi Network.",
+          "verify_ssl": "Проверять сертификат SSL при подключении."
+        },
+        "title": "Изменение подключения UniFi Network"
+      },
       "site": {
         "data": {
           "site": "Сайт"
@@ -39,24 +57,6 @@
           "verify_ssl": "Проверять сертификат SSL при подключении."
         },
         "title": "Настройка UniFi Network"
-      },
-      "reconfigure": {
-        "data": {
-          "host": "Адрес контроллера",
-          "password": "Пароль",
-          "port": "Порт",
-          "site": "Сайт",
-          "username": "Имя пользователя",
-          "verify_ssl": "Проверять сертификат SSL"
-        },
-        "data_description": {
-          "host": "Имя хоста или IP-адрес UniFi Network.",
-          "password": "Пароль локального пользователя UniFi Network.",
-          "port": "Порт приложения UniFi Network.",
-          "username": "Имя локального пользователя UniFi Network.",
-          "verify_ssl": "Проверять сертификат SSL при подключении."
-        },
-        "title": "Изменение подключения UniFi Network"
       }
     }
   },
@@ -139,15 +139,6 @@
       "smartpower_ac_power_consumption": {
         "name": "Потребляемая мощность"
       },
-      "wan_latency": {
-        "name": "Задержка {target} — {wan}"
-      },
-      "wired_client_link_speed": {
-        "name": "Скорость соединения"
-      },
-      "wlan_clients": {
-        "name": "Клиенты"
-      },
       "ups_battery_level": {
         "name": "Заряд батареи"
       },
@@ -171,6 +162,15 @@
       },
       "ups_output_voltage": {
         "name": "Выходное напряжение"
+      },
+      "wan_latency": {
+        "name": "Задержка {target} — {wan}"
+      },
+      "wired_client_link_speed": {
+        "name": "Скорость соединения"
+      },
+      "wlan_clients": {
+        "name": "Клиенты"
       }
     },
     "switch": {
@@ -228,7 +228,6 @@
         },
         "sections": {
           "more_options": {
-            "name": "Дополнительные параметры",
             "data": {
               "allow_bandwidth_sensors": "Скорость приёма и передачи клиентов",
               "allow_uptime_sensors": "Время подключения клиентов",
@@ -248,10 +247,27 @@
               "ignore_wired_bug": "Отключить исправление ошибки UniFi, при которой проводной клиент иногда определяется как беспроводной.",
               "ssid_filter": "Отслеживать беспроводных клиентов только в выбранных сетях Wi-Fi.",
               "track_wired_clients": "Включать проводные устройства в отслеживание клиентов."
-            }
+            },
+            "name": "Дополнительные параметры"
           }
         }
       }
+    }
+  },
+  "services": {
+    "reconnect_client": {
+      "description": "Принудительно переподключает беспроводного клиента к UniFi Network.",
+      "fields": {
+        "device_id": {
+          "description": "Устройство, которое необходимо переподключить к беспроводной сети.",
+          "name": "Устройство"
+        }
+      },
+      "name": "Переподключить беспроводного клиента"
+    },
+    "remove_clients": {
+      "description": "Удаляет кратковременные записи клиентов из контроллера UniFi Network.",
+      "name": "Удалить клиентов UniFi Network"
     }
   },
   "selector": {
@@ -263,20 +279,10 @@
       }
     }
   },
-  "services": {
-    "reconnect_client": {
-      "name": "Переподключить беспроводного клиента",
-      "description": "Принудительно переподключает беспроводного клиента к UniFi Network.",
-      "fields": {
-        "device_id": {
-          "name": "Устройство",
-          "description": "Устройство, которое необходимо переподключить к беспроводной сети."
-        }
-      }
-    },
-    "remove_clients": {
-      "name": "Удалить клиентов UniFi Network",
-      "description": "Удаляет кратковременные записи клиентов из контроллера UniFi Network."
+  "issues": {
+    "adapter_incompatible": {
+      "title": "Адаптер UniFi несовместим с этой версией Home Assistant",
+      "description": "Изменился внутренний интерфейс встроенной UniFi: {details}. Загрузка остановлена, чтобы сохранить фильтрацию клиентов. Обновите адаптер перед повторным запуском."
     }
   }
 }

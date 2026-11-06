@@ -1,24 +1,28 @@
 """Behavior of the selective client override on the 2026.11 integration base."""
 
-from custom_components.unifi.const import (
+from custom_components.unifi.adapter_policy import (
     CLIENT_FILTER_ALL,
     CLIENT_FILTER_NONE,
     CLIENT_FILTER_SELECTED,
+    CONF_CLIENT_FILTER_MODE,
+    CONF_CREATE_NETWORK_ENTITIES,
+    policy_from_options,
+    safe_prune,
+)
+import probatio
+import pytest
+from pytest_homeassistant.common import MockConfigEntry
+
+from homeassistant.components.unifi.const import (
     CONF_ALLOW_BANDWIDTH_SENSORS,
     CONF_ALLOW_UPTIME_SENSORS,
     CONF_BLOCK_CLIENT,
-    CONF_CLIENT_FILTER_MODE,
     CONF_CLIENT_SOURCE,
-    CONF_CREATE_NETWORK_ENTITIES,
     CONF_DPI_RESTRICTIONS,
     CONF_MORE_OPTIONS,
     CONF_TRACK_CLIENTS,
     CONF_TRACK_DEVICES,
 )
-from custom_components.unifi.hub.config import UnifiConfig
-import pytest
-from pytest_homeassistant.common import MockConfigEntry
-
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -260,10 +264,10 @@ async def test_legacy_option_migration(
 ) -> None:
     """Legacy options retain their meaning and client selections."""
     hass.config_entries.async_update_entry(config_entry, options=options)
-    config = UnifiConfig.from_config_entry(config_entry)
-    assert config.option_client_filter_mode == mode
-    assert config.option_create_network_entities is equipment
-    assert config.option_supported_clients == options.get(CONF_CLIENT_SOURCE, [])
+    policy = policy_from_options(options)
+    assert policy.mode == mode
+    assert policy.network is equipment
+    assert policy.selected == frozenset(options.get(CONF_CLIENT_SOURCE, []))
 
 
 @pytest.mark.parametrize("client_payload", [CLIENTS])
@@ -296,6 +300,68 @@ async def test_option_form_stores_mode_and_control_selection(
     assert result["data"][CONF_BLOCK_CLIENT] == [OTHER_MAC]
     assert result["data"][CONF_TRACK_CLIENTS] is (mode == CLIENT_FILTER_ALL)
     assert result["data"][CONF_TRACK_DEVICES] is False
+
+
+@pytest.mark.parametrize("client_payload", [CLIENTS])
+async def test_new_native_options_survive_and_input_is_not_mutated(
+    hass: HomeAssistant,
+    config_entry_setup: MockConfigEntry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Future native options pass through both the form and saving path."""
+    from homeassistant.components.unifi.config_flow import (
+        UnifiOptionsFlowHandler as NativeOptionsFlowHandler,
+    )
+
+    original = NativeOptionsFlowHandler.async_step_init
+
+    async def future_options(flow, user_input=None):
+        result = await original(flow, user_input)
+        if schema := result.get("data_schema"):
+            schema.schema[probatio.Optional("future_native", default=True)] = bool
+        return result
+
+    monkeypatch.setattr(NativeOptionsFlowHandler, "async_step_init", future_options)
+    result = await hass.config_entries.options.async_init(config_entry_setup.entry_id)
+    assert "future_native" in {
+        getattr(key, "schema", key) for key in result["data_schema"].schema
+    }
+    user_input = {
+        CONF_CLIENT_FILTER_MODE: CLIENT_FILTER_SELECTED,
+        CONF_CLIENT_SOURCE: [SELECTED_MAC],
+        CONF_CREATE_NETWORK_ENTITIES: True,
+        CONF_BLOCK_CLIENT: [],
+        CONF_MORE_OPTIONS: {},
+        "future_native": False,
+    }
+    submitted = {**user_input, CONF_MORE_OPTIONS: dict(user_input[CONF_MORE_OPTIONS])}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input=user_input
+    )
+    assert result["data"]["future_native"] is False
+    assert user_input == submitted
+
+
+@pytest.mark.parametrize("client_payload", [[CLIENTS[0]]])
+@pytest.mark.parametrize("config_entry_options", [{CONF_BLOCK_CLIENT: [OTHER_MAC]}])
+async def test_unavailable_control_client_is_kept_in_options(
+    hass: HomeAssistant,
+    config_entry_setup: MockConfigEntry,
+) -> None:
+    """Opening options cannot silently drop a currently unavailable control client."""
+    result = await hass.config_entries.options.async_init(config_entry_setup.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_CLIENT_FILTER_MODE: CLIENT_FILTER_ALL,
+            CONF_CLIENT_SOURCE: [],
+            CONF_CREATE_NETWORK_ENTITIES: True,
+            CONF_BLOCK_CLIENT: [OTHER_MAC],
+            CONF_MORE_OPTIONS: {},
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"][CONF_BLOCK_CLIENT] == [OTHER_MAC]
 
 
 @pytest.mark.parametrize("client_payload", [CLIENTS])
@@ -409,11 +475,71 @@ async def test_failed_equipment_inventory_never_prunes_clients(
     before = {entry.entity_id for entry in client_entities(entity_registry, OTHER_MAC)}
     assert before
     hub = config_entry.runtime_data
-    hub.config.option_client_filter_mode = CLIENT_FILTER_NONE
+    from custom_components.unifi.adapter_policy import ClientPolicy
+
+    hub._unifi_selective_policy = ClientPolicy(mode=CLIENT_FILTER_NONE)
     coordinator = hub.entity_loader.get_data_update_coordinator(hub.api.devices)
     coordinator.last_update_success = False
-    hub.entity_loader._prune_unselected_clients()
+    safe_prune(hub)
     assert before <= set(entity_registry.entities)
+
+
+@pytest.mark.parametrize("client_payload", [CLIENTS])
+async def test_filter_reload_removes_live_statistics_when_inventory_fails(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    config_entry: MockConfigEntry,
+    config_entry_factory: ConfigEntryFactoryType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Excluded live statistics cannot remain restored when cleanup defers on error."""
+    from aiounifi.interfaces.devices import Devices
+
+    from homeassistant.components.unifi.coordinator import UnifiDataUpdateCoordinator
+    from homeassistant.helpers.update_coordinator import UpdateFailed
+
+    options = {
+        CONF_CLIENT_FILTER_MODE: CLIENT_FILTER_SELECTED,
+        CONF_CLIENT_SOURCE: [SELECTED_MAC],
+        CONF_ALLOW_BANDWIDTH_SENSORS: True,
+        CONF_ALLOW_UPTIME_SENSORS: True,
+    }
+    hass.config_entries.async_update_entry(config_entry, options=options)
+    await config_entry_factory()
+    old_entities = client_entities(entity_registry, SELECTED_MAC)
+    live_entities = [
+        entry for entry in old_entities if hass.states.get(entry.entity_id) is not None
+    ]
+    assert any(entry.domain == "sensor" for entry in live_entities)
+    original_update = UnifiDataUpdateCoordinator._async_update_data
+
+    async def unavailable_inventory(coordinator):
+        if isinstance(coordinator.handler, Devices):
+            raise UpdateFailed("Mocked unavailable device inventory")
+        return await original_update(coordinator)
+
+    monkeypatch.setattr(
+        UnifiDataUpdateCoordinator, "_async_update_data", unavailable_inventory
+    )
+    hass.config_entries.async_update_entry(
+        config_entry,
+        options={
+            **options,
+            CONF_CLIENT_FILTER_MODE: CLIENT_FILTER_NONE,
+            CONF_CLIENT_SOURCE: [],
+        },
+    )
+    await hass.async_block_till_done()
+    assert config_entry.state is ConfigEntryState.LOADED
+    assert not any(
+        entity_registry.async_get(entry.entity_id) for entry in live_entities
+    )
+    assert not any(hass.states.get(entry.entity_id) for entry in live_entities)
+    # Disabled records may remain until a healthy inventory permits device pruning.
+    assert all(
+        entry.disabled_by is not None
+        for entry in client_entities(entity_registry, SELECTED_MAC)
+    )
 
 
 @pytest.mark.parametrize("client_payload", [CLIENTS])
